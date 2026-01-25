@@ -1,0 +1,262 @@
+#include <iostream>
+#include <stack>
+#include <string>
+#include <cctype>
+#include <map>
+#include <cmath>
+#include <sstream>
+#include <vector>
+#include <stdexcept>
+#include <fstream>
+using namespace std;
+
+// Define M_PI 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
+// Helper functions
+bool isFunction(const string& s) {
+    return s == "sin" || s == "cos" || s == "tan" || s == "sqrt" || s == "log";
+}
+
+bool isOperator(const string& s) {
+    return s == "+" || s == "-" || s == "*" || s == "/" || s == "%" || s == "^";
+}
+
+int precedence(const string& op) {
+    if (isFunction(op)) return 4;
+    if (op == "^") return 3;
+    if (op == "*" || op == "/" || op == "%") return 2;
+    if (op == "+" || op == "-") return 1;
+    return 0;
+}
+
+// Tokenize and handle implicit multiplication
+vector<string> tokenize(const string& expr) {
+    vector<string> tokens;
+    string token;
+    for (size_t i = 0; i < expr.length(); ++i) {
+        char c = expr[i];
+
+        if (isspace(c)) continue;
+
+        if (isdigit(c) || c == '.') {
+            token.clear();
+            while (i < expr.size() && (isdigit(expr[i]) || expr[i] == '.'))
+                token += expr[i++];
+            --i;
+            tokens.push_back(token);
+        }
+        else if (isalpha(c)) {
+            token.clear();
+            while (i < expr.size() && isalpha(expr[i]))
+                token += expr[i++];
+            --i;
+            tokens.push_back(token);
+        }
+        else if (c == '(' || c == ')') {
+            string t(1, c);
+            tokens.push_back(t);
+        }
+        else if (string("+-*/%^").find(c) != string::npos) {
+            string t(1, c);
+            tokens.push_back(t);
+        }
+    }
+
+    // Handle implicit multiplication
+    vector<string> updated;
+    for (size_t i = 0; i < tokens.size(); ++i) {
+        string curr = tokens[i];
+        updated.push_back(curr);
+
+        if (i + 1 < tokens.size()) {
+            string next = tokens[i + 1];
+            bool insertMult = false;
+
+            if ((isdigit(curr[0]) || isalpha(curr[0]) || curr == ")") &&
+                (isalpha(next[0]) || next == "(" || isFunction(next))) {
+                insertMult = true;
+            }
+
+            if (isFunction(curr) && next == "(") insertMult = false;
+
+            if (insertMult) updated.push_back("*");
+        }
+    }
+
+    return updated;
+}
+
+// Convert infix to postfix
+string infixToPostfix(const string& expr) {
+    vector<string> tokens = tokenize(expr);
+    stack<string> opStack;
+    string postfix;
+
+    for (const string& token : tokens) {
+        if (isdigit(token[0]) || (token.size() > 1 && isdigit(token[1]))) {
+            postfix += token + " ";
+        }
+        else if (isalpha(token[0]) && !isFunction(token)) {
+            postfix += token + " ";
+        }
+        else if (isFunction(token)) {
+            opStack.push(token);
+        }
+        else if (token == "(") {
+            opStack.push(token);
+        }
+        else if (token == ")") {
+            while (!opStack.empty() && opStack.top() != "(") {
+                postfix += opStack.top() + " ";
+                opStack.pop();
+            }
+            if (opStack.empty()) throw runtime_error("Mismatched parentheses.");
+            opStack.pop(); // remove '('
+            if (!opStack.empty() && isFunction(opStack.top())) {
+                postfix += opStack.top() + " ";
+                opStack.pop();
+            }
+        }
+        else if (isOperator(token)) {
+            while (!opStack.empty() && precedence(opStack.top()) >= precedence(token)) {
+                postfix += opStack.top() + " ";
+                opStack.pop();
+            }
+            opStack.push(token);
+        }
+        else {
+            throw runtime_error("Unknown token: " + token);
+        }
+    }
+
+    while (!opStack.empty()) {
+        if (opStack.top() == "(" || opStack.top() == ")")
+            throw runtime_error("Mismatched parentheses.");
+        postfix += opStack.top() + " ";
+        opStack.pop();
+    }
+
+    return postfix;
+}
+
+// Convert degrees to radians
+double toRadians(double degrees) {
+    return degrees * M_PI / 180.0;
+}
+
+// Evaluate postfix
+double evaluatePostfix(const string& postfix, map<string, double>& variables) {
+    istringstream iss(postfix);
+    stack<double> st;
+    string token;
+
+    while (iss >> token) {
+        if (isdigit(token[0]) || (token[0] == '-' && token.size() > 1)) {
+            st.push(stod(token));
+        }
+        else if (isFunction(token)) {
+            if (st.empty()) throw runtime_error("Missing operand for function: " + token);
+            double val = st.top(); st.pop();
+            double rad = toRadians(val);
+            if (token == "sin") st.push(sin(rad));
+            else if (token == "cos") st.push(cos(rad));
+            else if (token == "tan") st.push(tan(rad));
+            else if (token == "sqrt") {
+                if (val < 0) throw runtime_error("Cannot take sqrt of negative number.");
+                st.push(sqrt(val));
+            }
+            else if (token == "log") {
+                if (val <= 0) throw runtime_error("Cannot take log of non-positive number.");
+                st.push(log(val));
+            }
+        }
+        else if (isOperator(token)) {
+            if (st.size() < 2) throw runtime_error("Insufficient operands for operator: " + token);
+            double b = st.top(); st.pop();
+            double a = st.top(); st.pop();
+            if (token == "+") st.push(a + b);
+            else if (token == "-") st.push(a - b);
+            else if (token == "*") st.push(a * b);
+            else if (token == "/") {
+                if (b == 0) throw runtime_error("Division by zero.");
+                st.push(a / b);
+            }
+            else if (token == "%") {
+                if (b == 0) throw runtime_error("Modulo by zero.");
+                st.push(fmod(a, b));
+            }
+            else if (token == "^") st.push(pow(a, b));
+        }
+        else { // variable
+            if (variables.find(token) == variables.end()) {
+                cout << "Enter value for variable '" << token << "': ";
+                cin >> variables[token];
+            }
+            st.push(variables[token]);
+        }
+    }
+
+    if (st.size() != 1) throw runtime_error("Invalid expression. Stack imbalance.");
+    return st.top();
+}
+
+// ===================== Main Function =====================
+int main() {
+    string infix;
+    map<string, double> variables;
+
+    system("cls"); // Clear screen
+
+    cout << "=============================================================\n";
+    cout << "       INFIX TO POSTFIX CONVERTER & EXPRESSION EVALUATOR    \n";
+    cout << "=============================================================\n";
+    cout << " Project for: Data Structures & Algorithms\n";
+    cout << " Team Members:\n";
+    cout << "   - Duaa Jamal \n";
+    cout << "   - Sameen Ali\n";
+    cout << "   - Ali ubaid \n";
+    cout << "-------------------------------------------------------------\n";
+
+    cout << "\nEnter an infix expression (e.g., 2x + cos(90) - log(10)): ";
+    getline(cin, infix);
+
+    try {
+        string postfix = infixToPostfix(infix);
+        double result = evaluatePostfix(postfix, variables);
+
+        cout << "\n==================== EVALUATION RESULT ======================\n";
+        cout << " Infix Expression   : " << infix << endl;
+        cout << " Postfix Expression : " << postfix << endl;
+        cout << " Final Result       : " << result << endl;
+
+        // File saving
+        ofstream outFile("results.txt", ios::app);
+        if (outFile) {
+            outFile << "Infix: " << infix << "\n";
+            outFile << "Postfix: " << postfix << "\n";
+            outFile << "Result: " << result << "\n";
+            outFile << "-------------------------------------------------------------\n";
+            outFile.close();
+            cout << "\n[✔] Result successfully saved to 'results.txt'.\n";
+        }
+        else {
+            cerr << "\n[✘] Failed to open 'results.txt' for writing.\n";
+        }
+    }
+    catch (const exception& e) {
+        cout << "\n[Error] " << e.what() << endl;
+        cout << "\nPlease re-run the program and enter a valid expression.\n";
+    }
+
+    cout << "\n=============================================================\n";
+    cout << "            Thank you for using our expression tool!         \n";
+    cout << "       This project was built with C++ and Stack Logic       \n";
+    cout << "=============================================================\n";
+
+    system("pause");
+    return 0;
+}
+
